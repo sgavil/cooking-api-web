@@ -127,8 +127,8 @@ export default function AddRecipeModal({
       ALLOWED_ATTR: [], // Remove all attributes
     });
     
-    // Then trim and limit the length
-    return sanitized.trim().slice(0, maxLength);
+    // Then limit the length and only trim the ends
+    return sanitized.slice(0, maxLength).trim();
   };
 
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -156,7 +156,11 @@ export default function AddRecipeModal({
     let sanitizedValue = value;
 
     if (field === 'name') {
-      sanitizedValue = sanitizeText(value, MAX_TEXT_LENGTH.ingredient);
+      // For ingredient names, preserve spaces but remove HTML and limit length
+      sanitizedValue = DOMPurify.sanitize(value, {
+        ALLOWED_TAGS: [],
+        ALLOWED_ATTR: [],
+      }).slice(0, MAX_TEXT_LENGTH.ingredient);
     } else if (field === 'unit') {
       sanitizedValue = sanitizeText(value, 10); // Limit unit length
     } else {
