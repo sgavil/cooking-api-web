@@ -21,6 +21,7 @@ import {
   useDisclosure,
   useToast,
   Spinner,
+  Badge,
 } from '@chakra-ui/react'
 import { AddIcon, DeleteIcon, EditIcon } from '@chakra-ui/icons'
 import { Recipe } from './RecipeList'
@@ -31,13 +32,14 @@ import DOMPurify from 'dompurify'
 // Constants for image restrictions
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
-const MAX_IMAGE_DIMENSION = 2048;
+const MAX_IMAGE_DIMENSION = 1200; // Reduced from 2560px to 1200px for better storage size
 
 // Text input restrictions
 const MAX_TEXT_LENGTH = {
   name: 100,
   instructions: 5000,
   ingredient: 50,
+  tag: 20, // Maximum length for a single tag
 };
 
 interface AddRecipeModalProps {
@@ -60,14 +62,16 @@ export default function AddRecipeModal({
   const [instructions, setInstructions] = useState('')
   const [photoUrl, setPhotoUrl] = useState('')
   const [isPublic, setIsPublic] = useState(false)
+  const [tags, setTags] = useState<string[]>([])
+  const [currentTag, setCurrentTag] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
   const [crop, setCrop] = useState<Crop>({
     unit: '%',
-    x: 25,
-    y: 25,
-    width: 50,
-    height: 50,
+    x: 0,
+    y: 0,
+    width: 56.25,
+    height: 75,
   })
   const [completedCrop, setCompletedCrop] = useState<PixelCrop | null>(null)
   const [isCropping, setIsCropping] = useState(false)
@@ -84,6 +88,7 @@ export default function AddRecipeModal({
       setInstructions(editingRecipe.instructions)
       setPhotoUrl(editingRecipe.photoUrl || '')
       setIsPublic(editingRecipe.isPublic)
+      setTags(editingRecipe.tags || [])
     } else {
       resetForm()
     }
@@ -95,12 +100,14 @@ export default function AddRecipeModal({
     setInstructions('')
     setPhotoUrl('')
     setIsPublic(false)
+    setTags([])
+    setCurrentTag('')
     setCrop({
       unit: '%',
-      x: 25,
-      y: 25,
-      width: 50,
-      height: 50,
+      x: 0,
+      y: 0,
+      width: 56.25,
+      height: 75,
     })
     setCompletedCrop(null)
   }
@@ -130,8 +137,14 @@ export default function AddRecipeModal({
   };
 
   const handleInstructionsChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const sanitizedInstructions = sanitizeText(e.target.value, MAX_TEXT_LENGTH.instructions);
-    setInstructions(sanitizedInstructions);
+    const value = e.target.value;
+    if (value.length <= MAX_TEXT_LENGTH.instructions) {
+      const sanitizedInstructions = DOMPurify.sanitize(value, {
+        ALLOWED_TAGS: [], // Remove all HTML tags
+        ALLOWED_ATTR: [], // Remove all attributes
+      });
+      setInstructions(sanitizedInstructions);
+    }
   };
 
   const handleIngredientChange = (
@@ -168,14 +181,17 @@ export default function AddRecipeModal({
           let width = img.width;
           let height = img.height;
           
-          // Scale down if image is too large
-          if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
-            if (width > height) {
-              height = (height / width) * MAX_IMAGE_DIMENSION;
-              width = MAX_IMAGE_DIMENSION;
-            } else {
-              width = (width / height) * MAX_IMAGE_DIMENSION;
-              height = MAX_IMAGE_DIMENSION;
+          // Always scale down to reasonable dimensions
+          const maxDim = MAX_IMAGE_DIMENSION;
+          if (width > height) {
+            if (width > maxDim) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            }
+          } else {
+            if (height > maxDim) {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
             }
           }
 
@@ -189,6 +205,10 @@ export default function AddRecipeModal({
             return;
           }
           
+          // Enable image smoothing for better quality
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          
           ctx.drawImage(img, 0, 0, width, height);
           
           canvas.toBlob(
@@ -200,7 +220,7 @@ export default function AddRecipeModal({
               }
             },
             'image/jpeg',
-            0.8 // compression quality
+            0.85  // Reduced quality for better compression while maintaining good visuals
           );
         };
         img.onerror = () => reject(new Error('Failed to load image'));
@@ -251,12 +271,14 @@ export default function AddRecipeModal({
         
         // Show cropping interface
         setIsCropping(true);
+        
+        // Reset crop to default 3:4 ratio centered in the image
         setCrop({
           unit: '%',
           x: 25,
-          y: 25,
+          y: 0,
           width: 50,
-          height: 50,
+          height: 66.67, // 3:4 ratio (50 * 4/3)
         });
         setCompletedCrop(null);
 
@@ -288,16 +310,35 @@ export default function AddRecipeModal({
   };
 
   const getCroppedImg = (image: HTMLImageElement, crop: PixelCrop): string => {
-    const canvas = document.createElement('canvas')
-    const scaleX = image.naturalWidth / image.width
-    const scaleY = image.naturalHeight / image.height
-    canvas.width = crop.width
-    canvas.height = crop.height
-    const ctx = canvas.getContext('2d')
+    const canvas = document.createElement('canvas');
+    const scaleX = image.naturalWidth / image.width;
+    const scaleY = image.naturalHeight / image.height;
+    
+    // Calculate dimensions that maintain aspect ratio but don't exceed max dimensions
+    let width = crop.width;
+    let height = crop.height;
+    if (width > height) {
+      if (width > MAX_IMAGE_DIMENSION) {
+        height = Math.round((height * MAX_IMAGE_DIMENSION) / width);
+        width = MAX_IMAGE_DIMENSION;
+      }
+    } else {
+      if (height > MAX_IMAGE_DIMENSION) {
+        width = Math.round((width * MAX_IMAGE_DIMENSION) / height);
+        height = MAX_IMAGE_DIMENSION;
+      }
+    }
+    
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
 
     if (!ctx) {
-      throw new Error('No 2d context')
+      throw new Error('No 2d context');
     }
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
 
     ctx.drawImage(
       image,
@@ -307,12 +348,12 @@ export default function AddRecipeModal({
       crop.height * scaleY,
       0,
       0,
-      crop.width,
-      crop.height
-    )
+      width,
+      height
+    );
 
-    return canvas.toDataURL('image/jpeg')
-  }
+    return canvas.toDataURL('image/jpeg', 0.85);
+  };
 
   const handleCropComplete = (crop: PixelCrop) => {
     setCompletedCrop(crop)
@@ -323,6 +364,25 @@ export default function AddRecipeModal({
       const croppedImageUrl = getCroppedImg(imgRef.current, completedCrop)
       setPhotoUrl(croppedImageUrl)
       setIsCropping(false)
+    }
+  }
+
+  const handleAddTag = () => {
+    const sanitizedTag = sanitizeText(currentTag, MAX_TEXT_LENGTH.tag).toLowerCase()
+    if (sanitizedTag && !tags.includes(sanitizedTag)) {
+      setTags([...tags, sanitizedTag])
+      setCurrentTag('')
+    }
+  }
+
+  const handleRemoveTag = (tagToRemove: string) => {
+    setTags(tags.filter(tag => tag !== tagToRemove))
+  }
+
+  const handleTagKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleAddTag()
     }
   }
 
@@ -337,6 +397,7 @@ export default function AddRecipeModal({
       instructions,
       photoUrl,
       isPublic,
+      tags,
       createdBy: editingRecipe?.createdBy || {
         uid: '',
         email: '',
@@ -360,13 +421,6 @@ export default function AddRecipeModal({
           <VStack spacing={4}>
             <FormControl>
               <FormLabel>Recipe Photo</FormLabel>
-              <input
-                type="file"
-                accept={ALLOWED_IMAGE_TYPES.join(',')}
-                onChange={handlePhotoUpload}
-                ref={fileInputRef}
-                style={{ display: 'none' }}
-              />
               <Box
                 position="relative"
                 w="100%"
@@ -377,8 +431,6 @@ export default function AddRecipeModal({
                 display="flex"
                 alignItems="center"
                 justifyContent="center"
-                cursor={isUploading ? 'wait' : 'pointer'}
-                onClick={() => !isUploading && !isCropping && fileInputRef.current?.click()}
                 overflow="hidden"
               >
                 {isUploading ? (
@@ -387,24 +439,37 @@ export default function AddRecipeModal({
                     <Text color="gray.500">Processing image...</Text>
                   </VStack>
                 ) : isCropping && photoUrl ? (
-                  <VStack w="100%" h="100%" spacing={4} p={4}>
-                    <Box w="100%" h="100%" position="relative">
+                  <Box w="100%" minH="500px">
+                    <Box 
+                      w="100%" 
+                      h="450px" 
+                      display="flex" 
+                      alignItems="center" 
+                      justifyContent="center" 
+                      bg="gray.50"
+                      mb={4}
+                      borderRadius="md"
+                    >
                       <ReactCrop
                         crop={crop}
                         onChange={(c) => setCrop(c)}
                         onComplete={handleCropComplete}
-                        aspect={16 / 9}
-                        style={{ maxHeight: '100%', width: '100%' }}
+                        aspect={3/4}
+                        style={{ maxHeight: '100%', margin: '0 auto' }}
                       >
                         <img
                           ref={imgRef}
                           src={photoUrl}
-                          style={{ maxWidth: '100%', maxHeight: '400px', objectFit: 'contain' }}
+                          style={{ 
+                            maxWidth: '100%', 
+                            maxHeight: '100%', 
+                            objectFit: 'contain'
+                          }}
                           alt="Crop preview"
                         />
                       </ReactCrop>
                     </Box>
-                    <HStack spacing={2}>
+                    <HStack spacing={2} justify="center">
                       <Button
                         colorScheme="purple"
                         size="sm"
@@ -421,15 +486,18 @@ export default function AddRecipeModal({
                         Cancel
                       </Button>
                     </HStack>
-                  </VStack>
+                  </Box>
                 ) : photoUrl ? (
-                  <Box position="relative" w="100%" h="200px">
+                  <Box position="relative" w="100%" pb="133.33%">
                     <Image
                       src={photoUrl}
                       alt="Recipe preview"
                       objectFit="cover"
                       w="100%"
                       h="100%"
+                      position="absolute"
+                      top="0"
+                      left="0"
                       borderRadius="md"
                     />
                     <HStack position="absolute" top={2} right={2} spacing={2}>
@@ -459,8 +527,24 @@ export default function AddRecipeModal({
                     </HStack>
                   </Box>
                 ) : (
-                  <VStack spacing={2}>
-                    <Text color="gray.500">Click to upload photo</Text>
+                  <VStack spacing={4} p={6}>
+                    <input
+                      type="file"
+                      accept={ALLOWED_IMAGE_TYPES.join(',')}
+                      onChange={handlePhotoUpload}
+                      ref={fileInputRef}
+                      style={{ display: 'none' }}
+                    />
+                    <Button
+                      onClick={() => fileInputRef.current?.click()}
+                      colorScheme="purple"
+                      variant="outline"
+                      size="lg"
+                      leftIcon={<AddIcon />}
+                      isDisabled={isUploading}
+                    >
+                      Upload Photo
+                    </Button>
                     <Text fontSize="sm" color="gray.400">
                       Max size: 5MB (JPG, JPEG, PNG, WebP)
                     </Text>
@@ -542,11 +626,60 @@ export default function AddRecipeModal({
                 value={instructions}
                 onChange={handleInstructionsChange}
                 placeholder="Enter cooking instructions"
-                rows={4}
+                rows={8}
+                resize="vertical"
+                minH="200px"
+                whiteSpace="pre-wrap"
                 maxLength={MAX_TEXT_LENGTH.instructions}
               />
               <Text fontSize="xs" color="gray.500" mt={1}>
                 {instructions.length}/{MAX_TEXT_LENGTH.instructions} characters
+              </Text>
+            </FormControl>
+
+            <FormControl>
+              <FormLabel>Tags (optional)</FormLabel>
+              <HStack spacing={2} mb={2}>
+                {tags.map((tag) => (
+                  <Badge
+                    key={tag}
+                    colorScheme="purple"
+                    borderRadius="full"
+                    px={3}
+                    py={1}
+                  >
+                    {tag}
+                    <IconButton
+                      aria-label="Remove tag"
+                      icon={<DeleteIcon />}
+                      size="xs"
+                      ml={1}
+                      onClick={() => handleRemoveTag(tag)}
+                      variant="ghost"
+                      colorScheme="purple"
+                    />
+                  </Badge>
+                ))}
+              </HStack>
+              <HStack>
+                <Input
+                  placeholder="Add a tag"
+                  value={currentTag}
+                  onChange={(e) => setCurrentTag(e.target.value)}
+                  onKeyPress={handleTagKeyPress}
+                  maxLength={MAX_TEXT_LENGTH.tag}
+                />
+                <Button
+                  onClick={handleAddTag}
+                  colorScheme="purple"
+                  size="md"
+                  isDisabled={!currentTag.trim()}
+                >
+                  Add
+                </Button>
+              </HStack>
+              <Text fontSize="xs" color="gray.500" mt={1}>
+                Press Enter or click Add to add a tag
               </Text>
             </FormControl>
 

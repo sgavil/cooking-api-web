@@ -23,7 +23,7 @@ interface ProfileProps {
 }
 
 export default function Profile({ isOpen, onClose }: ProfileProps) {
-  const { currentUser, updateUserPassword, logout } = useAuth()
+  const { currentUser, updateUserPassword, logout, currentUsername } = useAuth()
   const [newPassword, setNewPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const toast = useToast()
@@ -76,6 +76,13 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
         <ModalCloseButton />
         <ModalBody pb={6}>
           <VStack spacing={4}>
+            <Box w="100%">
+              <Text fontWeight="bold" mb={2}>
+                Username:
+              </Text>
+              <Text>{currentUsername}</Text>
+            </Box>
+
             <Box w="100%">
               <Text fontWeight="bold" mb={2}>
                 Email:

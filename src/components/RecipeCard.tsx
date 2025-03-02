@@ -34,6 +34,11 @@ export default function RecipeCard({ recipe, onEdit, onUpdate, onDelete, isAdmin
   const [isUpdating, setIsUpdating] = useState(false)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
 
+  const truncateText = (text: string, maxLength: number = 150) => {
+    if (text.length <= maxLength) return text;
+    return text.slice(0, maxLength).trim() + '...';
+  };
+
   const handleShareToggle = async (e: React.ChangeEvent<HTMLInputElement>) => {
     e.stopPropagation()
     if (!isOwner || isUpdating) return
@@ -114,22 +119,27 @@ export default function RecipeCard({ recipe, onEdit, onUpdate, onDelete, isAdmin
         boxShadow="sm"
         _hover={{ boxShadow: 'md' }}
         transition="all 0.2s"
+        maxW="300px"
       >
-        {recipe.photoUrl && (
-          <Box
-            cursor="pointer"
-            onClick={() => setIsDetailsOpen(true)}
-          >
-            <Image
-              src={recipe.photoUrl}
-              alt={recipe.name}
-              objectFit="cover"
-              w="100%"
-              h="200px"
-            />
-          </Box>
-        )}
-        <Box p={6}>
+        <Box
+          cursor="pointer"
+          onClick={() => setIsDetailsOpen(true)}
+          position="relative"
+          w="100%"
+          pb="133.33%" // 4:3 vertical aspect ratio (133.33% = 4/3 * 100)
+        >
+          <Image
+            src={recipe.photoUrl}
+            alt={recipe.name}
+            objectFit="cover"
+            w="100%"
+            h="100%"
+            position="absolute"
+            top="0"
+            left="0"
+          />
+        </Box>
+        <Box p={4}>
           <VStack align="stretch" spacing={4}>
             <HStack justify="space-between" align="center">
               <Box
@@ -153,6 +163,25 @@ export default function RecipeCard({ recipe, onEdit, onUpdate, onDelete, isAdmin
                 />
               )}
             </HStack>
+
+            {recipe.tags && recipe.tags.length > 0 && (
+              <Box>
+                <HStack spacing={2} wrap="wrap">
+                  {recipe.tags.map(tag => (
+                    <Badge
+                      key={tag}
+                      colorScheme="purple"
+                      borderRadius="full"
+                      px={2}
+                      py={1}
+                      fontSize="xs"
+                    >
+                      {tag}
+                    </Badge>
+                  ))}
+                </HStack>
+              </Box>
+            )}
 
             {isOwner && (
               <HStack justify="space-between" align="center" spacing={4}>
@@ -220,7 +249,21 @@ export default function RecipeCard({ recipe, onEdit, onUpdate, onDelete, isAdmin
                 <Text fontWeight="bold" mb={2} color="brand.orange.500">
                   Instructions:
                 </Text>
-                <Text>{recipe.instructions}</Text>
+                <Text noOfLines={3} mb={2} textAlign="justify">
+                  {truncateText(recipe.instructions)}
+                </Text>
+                {recipe.instructions.length > 150 && (
+                  <Text
+                    color="brand.purple.500"
+                    fontSize="sm"
+                    fontWeight="medium"
+                    cursor="pointer"
+                    onClick={() => setIsDetailsOpen(true)}
+                    _hover={{ textDecoration: 'underline' }}
+                  >
+                    Read more
+                  </Text>
+                )}
               </Box>
             </Box>
           </VStack>

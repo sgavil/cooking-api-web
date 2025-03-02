@@ -43,10 +43,12 @@ export default function RecipeDetailsModal({
             {recipe.photoUrl && (
               <Box
                 position="relative"
-                width="100%"
-                height="300px"
+                width="300px"
+                height="400px"
+                mx="auto"
                 overflow="hidden"
                 borderRadius="md"
+                bg="gray.100"
               >
                 <Image
                   src={recipe.photoUrl}
@@ -67,6 +69,32 @@ export default function RecipeDetailsModal({
                 Created by {recipe.createdBy.username}
               </Text>
 
+              {recipe.tags && recipe.tags.length > 0 && (
+                <Box mb={4}>
+                  <Text
+                    fontWeight="bold"
+                    fontSize="sm"
+                    color="brand.orange.500"
+                    mb={2}
+                  >
+                    Tags:
+                  </Text>
+                  <HStack spacing={2} wrap="wrap">
+                    {recipe.tags.map(tag => (
+                      <Badge
+                        key={tag}
+                        colorScheme="purple"
+                        borderRadius="full"
+                        px={2}
+                        py={1}
+                      >
+                        {tag}
+                      </Badge>
+                    ))}
+                  </HStack>
+                </Box>
+              )}
+
               <Text
                 fontWeight="bold"
                 fontSize="lg"
@@ -86,18 +114,14 @@ export default function RecipeDetailsModal({
                 ))}
               </VStack>
 
-              <Text
-                fontWeight="bold"
-                fontSize="lg"
-                color="brand.orange.500"
-                mb={2}
-              >
+              <Text fontWeight="bold" mb={2} color="brand.orange.500">
                 Instructions:
               </Text>
               <Text
                 whiteSpace="pre-wrap"
                 color="gray.700"
                 lineHeight="tall"
+                textAlign="justify"
               >
                 {recipe.instructions}
               </Text>

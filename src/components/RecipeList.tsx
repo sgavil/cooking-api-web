@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
   Box,
   Button,
@@ -9,8 +9,10 @@ import {
   VStack,
   HStack,
   Text,
+  Icon,
 } from '@chakra-ui/react'
 import { AddIcon, SettingsIcon } from '@chakra-ui/icons'
+import { FaHeart } from 'react-icons/fa'
 import { collection, query, getDocs, addDoc, where, doc, updateDoc, deleteDoc } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
@@ -35,6 +37,7 @@ export interface Recipe {
     username: string
   }
   isPublic: boolean
+  tags?: string[]
 }
 
 export default function RecipeList() {
@@ -45,6 +48,22 @@ export default function RecipeList() {
   const { currentUser, currentUsername } = useAuth()
   const [viewMode, setViewMode] = useState<'my' | 'public'>('my')
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null)
+  const [selectedTag, setSelectedTag] = useState<string | null>(null)
+
+  // Get unique tags from all recipes
+  const allTags = useMemo(() => {
+    const tagSet = new Set<string>()
+    recipes.forEach(recipe => {
+      recipe.tags?.forEach(tag => tagSet.add(tag))
+    })
+    return Array.from(tagSet).sort()
+  }, [recipes])
+
+  // Filter recipes by selected tag
+  const filteredRecipes = useMemo(() => {
+    if (!selectedTag) return recipes
+    return recipes.filter(recipe => recipe.tags?.includes(selectedTag))
+  }, [recipes, selectedTag])
 
   useEffect(() => {
     fetchRecipes()
@@ -77,6 +96,7 @@ export default function RecipeList() {
           photoUrl: data.photoUrl,
           createdBy: data.createdBy,
           isPublic: data.isPublic,
+          tags: data.tags,
         })
       })
       setRecipes(fetchedRecipes)
@@ -116,6 +136,7 @@ export default function RecipeList() {
         instructions: updatedRecipe.instructions,
         photoUrl: updatedRecipe.photoUrl,
         isPublic: updatedRecipe.isPublic,
+        tags: updatedRecipe.tags,
       })
       fetchRecipes()
       setEditingRecipe(null)
@@ -149,56 +170,82 @@ export default function RecipeList() {
   return (
     <Container maxW="container.xl" py={8}>
       <VStack spacing={8} align="stretch">
-        <HStack justify="space-between" align="center">
-          <Heading color="brand.purple.500">Oli & Chencho Favs</Heading>
+        <HStack justify="space-between" wrap="wrap" spacing={4}>
+          <Heading color="brand.purple.500" display="flex" alignItems="center" gap={2}>
+            Oli & Chencho Favs
+            <Icon as={FaHeart} color="brand.purple.500" />
+          </Heading>
           <HStack spacing={4}>
-            <Button
-              variant={viewMode === 'public' ? 'solid' : 'outline'}
-              colorScheme="purple"
-              onClick={() => setViewMode('public')}
-            >
-              Oli & Chencho Favs
-            </Button>
-            <Button
-              variant={viewMode === 'my' ? 'solid' : 'outline'}
-              colorScheme="purple"
-              onClick={() => setViewMode('my')}
-            >
-              My Personal Recipes
-            </Button>
             {currentUser ? (
               <>
                 <Button
-                  leftIcon={<AddIcon />}
-                  onClick={() => {
-                    setEditingRecipe(null)
-                    onAddOpen()
-                  }}
-                  bg="brand.orange.400"
-                  color="white"
-                  _hover={{ bg: 'brand.orange.500' }}
-                >
-                  Add Recipe
-                </Button>
-                <Button
                   leftIcon={<SettingsIcon />}
                   onClick={onProfileOpen}
-                  variant="ghost"
                   colorScheme="purple"
+                  variant="ghost"
                 >
                   Profile
                 </Button>
+                <Button
+                  leftIcon={<AddIcon />}
+                  onClick={onAddOpen}
+                  colorScheme="orange"
+                >
+                  Add Recipe
+                </Button>
               </>
             ) : (
-              <Button
-                onClick={onAuthOpen}
-                colorScheme="purple"
-              >
+              <Button onClick={onAuthOpen} colorScheme="purple">
                 Log In
               </Button>
             )}
           </HStack>
         </HStack>
+
+        <HStack spacing={4} wrap="wrap">
+          <Button
+            colorScheme={viewMode === 'my' ? 'purple' : 'gray'}
+            onClick={() => {
+              setViewMode('my')
+              setSelectedTag(null)
+            }}
+          >
+            My Recipes
+          </Button>
+          <Button
+            colorScheme={viewMode === 'public' ? 'purple' : 'gray'}
+            onClick={() => {
+              setViewMode('public')
+              setSelectedTag(null)
+            }}
+          >
+            Public Recipes
+          </Button>
+        </HStack>
+
+        {allTags.length > 0 && (
+          <Box overflowX="auto" pb={2}>
+            <HStack spacing={2}>
+              <Button
+                size="sm"
+                colorScheme={selectedTag === null ? 'purple' : 'gray'}
+                onClick={() => setSelectedTag(null)}
+              >
+                All
+              </Button>
+              {allTags.map(tag => (
+                <Button
+                  key={tag}
+                  size="sm"
+                  colorScheme={selectedTag === tag ? 'purple' : 'gray'}
+                  onClick={() => setSelectedTag(tag)}
+                >
+                  {tag}
+                </Button>
+              ))}
+            </HStack>
+          </Box>
+        )}
 
         {!currentUser && viewMode === 'my' ? (
           <Text textAlign="center" color="gray.500">
@@ -207,10 +254,10 @@ export default function RecipeList() {
         ) : (
           <Grid
             templateColumns="repeat(auto-fill, minmax(300px, 1fr))"
-            gap={6}
+            gap={4}
             w="100%"
           >
-            {recipes.map((recipe) => (
+            {filteredRecipes.map((recipe) => (
               <RecipeCard
                 key={recipe.id}
                 recipe={recipe}
