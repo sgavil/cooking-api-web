@@ -19,11 +19,26 @@ import {
   Text,
   Switch,
   useDisclosure,
+  useToast,
+  Spinner,
 } from '@chakra-ui/react'
 import { AddIcon, DeleteIcon, EditIcon } from '@chakra-ui/icons'
 import { Recipe } from './RecipeList'
 import ReactCrop, { Crop, PixelCrop } from 'react-image-crop'
 import 'react-image-crop/dist/ReactCrop.css'
+import DOMPurify from 'dompurify'
+
+// Constants for image restrictions
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_IMAGE_DIMENSION = 2048;
+
+// Text input restrictions
+const MAX_TEXT_LENGTH = {
+  name: 100,
+  instructions: 5000,
+  ingredient: 50,
+};
 
 interface AddRecipeModalProps {
   isOpen: boolean
@@ -56,6 +71,8 @@ export default function AddRecipeModal({
   })
   const [completedCrop, setCompletedCrop] = useState<PixelCrop | null>(null)
   const [isCropping, setIsCropping] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const toast = useToast()
 
   useEffect(() => {
     if (editingRecipe) {
@@ -96,38 +113,179 @@ export default function AddRecipeModal({
     setIngredients(ingredients.filter((_, i) => i !== index))
   }
 
+  const sanitizeText = (text: string, maxLength: number): string => {
+    // First, sanitize the HTML/script content
+    const sanitized = DOMPurify.sanitize(text, {
+      ALLOWED_TAGS: [], // Remove all HTML tags
+      ALLOWED_ATTR: [], // Remove all attributes
+    });
+    
+    // Then trim and limit the length
+    return sanitized.trim().slice(0, maxLength);
+  };
+
+  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const sanitizedName = sanitizeText(e.target.value, MAX_TEXT_LENGTH.name);
+    setName(sanitizedName);
+  };
+
+  const handleInstructionsChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const sanitizedInstructions = sanitizeText(e.target.value, MAX_TEXT_LENGTH.instructions);
+    setInstructions(sanitizedInstructions);
+  };
+
   const handleIngredientChange = (
     index: number,
     field: 'name' | 'amount' | 'unit',
     value: string
   ) => {
-    const newIngredients = [...ingredients]
+    const newIngredients = [...ingredients];
+    let sanitizedValue = value;
+
+    if (field === 'name') {
+      sanitizedValue = sanitizeText(value, MAX_TEXT_LENGTH.ingredient);
+    } else if (field === 'unit') {
+      sanitizedValue = sanitizeText(value, 10); // Limit unit length
+    } else {
+      // For amount, only allow numbers and decimal point
+      sanitizedValue = value.replace(/[^\d.]/g, '');
+    }
+
     newIngredients[index] = {
       ...newIngredients[index],
-      [field]: field === 'amount' ? value : value,
-    }
-    setIngredients(newIngredients)
-  }
+      [field]: sanitizedValue,
+    };
+    setIngredients(newIngredients);
+  };
 
-  const handlePhotoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (file) {
-      const reader = new FileReader()
+  const compressImage = async (file: File): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = document.createElement('img');
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          let width = img.width;
+          let height = img.height;
+          
+          // Scale down if image is too large
+          if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
+            if (width > height) {
+              height = (height / width) * MAX_IMAGE_DIMENSION;
+              width = MAX_IMAGE_DIMENSION;
+            } else {
+              width = (width / height) * MAX_IMAGE_DIMENSION;
+              height = MAX_IMAGE_DIMENSION;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Failed to get canvas context'));
+            return;
+          }
+          
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          canvas.toBlob(
+            (blob) => {
+              if (blob) {
+                resolve(blob);
+              } else {
+                reject(new Error('Failed to compress image'));
+              }
+            },
+            'image/jpeg',
+            0.8 // compression quality
+          );
+        };
+        img.onerror = () => reject(new Error('Failed to load image'));
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const validateImage = (file: File): string | null => {
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      return 'Please upload a JPEG, PNG, or WebP image';
+    }
+    if (file.size > MAX_IMAGE_SIZE) {
+      return 'Image size should be less than 5MB';
+    }
+    return null;
+  };
+
+  const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const error = validateImage(file);
+    if (error) {
+      toast({
+        title: 'Invalid Image',
+        description: error,
+        status: 'error',
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+
+      // Compress the image
+      const compressedImage = await compressImage(file);
+      
+      // Convert blob to base64
+      const reader = new FileReader();
       reader.onloadend = () => {
-        setPhotoUrl(reader.result as string)
-        setIsCropping(true)
+        const base64String = reader.result as string;
+        setPhotoUrl(base64String);
+        
+        // Show cropping interface
+        setIsCropping(true);
         setCrop({
           unit: '%',
           x: 25,
           y: 25,
           width: 50,
           height: 50,
-        })
-        setCompletedCrop(null)
-      }
-      reader.readAsDataURL(file)
+        });
+        setCompletedCrop(null);
+
+        toast({
+          title: 'Success',
+          description: 'Image processed successfully',
+          status: 'success',
+          duration: 3000,
+          isClosable: true,
+        });
+      };
+      reader.onerror = () => {
+        throw new Error('Failed to read file');
+      };
+      reader.readAsDataURL(compressedImage);
+
+    } catch (error) {
+      console.error('Error processing photo:', error);
+      toast({
+        title: 'Processing Failed',
+        description: 'Failed to process image. Please try again.',
+        status: 'error',
+        duration: 3000,
+        isClosable: true,
+      });
+    } finally {
+      setIsUploading(false);
     }
-  }
+  };
 
   const getCroppedImg = (image: HTMLImageElement, crop: PixelCrop): string => {
     const canvas = document.createElement('canvas')
@@ -204,7 +362,7 @@ export default function AddRecipeModal({
               <FormLabel>Recipe Photo</FormLabel>
               <input
                 type="file"
-                accept="image/*"
+                accept={ALLOWED_IMAGE_TYPES.join(',')}
                 onChange={handlePhotoUpload}
                 ref={fileInputRef}
                 style={{ display: 'none' }}
@@ -219,11 +377,16 @@ export default function AddRecipeModal({
                 display="flex"
                 alignItems="center"
                 justifyContent="center"
-                cursor="pointer"
-                onClick={() => !isCropping && fileInputRef.current?.click()}
+                cursor={isUploading ? 'wait' : 'pointer'}
+                onClick={() => !isUploading && !isCropping && fileInputRef.current?.click()}
                 overflow="hidden"
               >
-                {isCropping && photoUrl ? (
+                {isUploading ? (
+                  <VStack spacing={4}>
+                    <Spinner size="xl" color="purple.500" />
+                    <Text color="gray.500">Processing image...</Text>
+                  </VStack>
+                ) : isCropping && photoUrl ? (
                   <VStack w="100%" h="100%" spacing={4} p={4}>
                     <Box w="100%" h="100%" position="relative">
                       <ReactCrop
@@ -296,7 +459,12 @@ export default function AddRecipeModal({
                     </HStack>
                   </Box>
                 ) : (
-                  <Text color="gray.500">Click to upload photo</Text>
+                  <VStack spacing={2}>
+                    <Text color="gray.500">Click to upload photo</Text>
+                    <Text fontSize="sm" color="gray.400">
+                      Max size: 5MB (JPG, JPEG, PNG, WebP)
+                    </Text>
+                  </VStack>
                 )}
               </Box>
             </FormControl>
@@ -305,9 +473,13 @@ export default function AddRecipeModal({
               <FormLabel>Recipe Name</FormLabel>
               <Input
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={handleNameChange}
                 placeholder="Enter recipe name"
+                maxLength={MAX_TEXT_LENGTH.name}
               />
+              <Text fontSize="xs" color="gray.500" mt={1}>
+                {name.length}/{MAX_TEXT_LENGTH.name} characters
+              </Text>
             </FormControl>
 
             <FormControl>
@@ -321,9 +493,12 @@ export default function AddRecipeModal({
                       onChange={(e) =>
                         handleIngredientChange(index, 'name', e.target.value)
                       }
+                      maxLength={MAX_TEXT_LENGTH.ingredient}
                     />
                     <Input
-                      type="number"
+                      type="text"
+                      inputMode="decimal"
+                      pattern="[0-9]*[.]?[0-9]+"
                       placeholder="Amount"
                       value={ingredient.amount}
                       onChange={(e) =>
@@ -338,6 +513,7 @@ export default function AddRecipeModal({
                         handleIngredientChange(index, 'unit', e.target.value)
                       }
                       w="80px"
+                      maxLength={10}
                     />
                     <IconButton
                       aria-label="Remove ingredient"
@@ -364,10 +540,14 @@ export default function AddRecipeModal({
               <FormLabel>Instructions</FormLabel>
               <Textarea
                 value={instructions}
-                onChange={(e) => setInstructions(e.target.value)}
+                onChange={handleInstructionsChange}
                 placeholder="Enter cooking instructions"
                 rows={4}
+                maxLength={MAX_TEXT_LENGTH.instructions}
               />
+              <Text fontSize="xs" color="gray.500" mt={1}>
+                {instructions.length}/{MAX_TEXT_LENGTH.instructions} characters
+              </Text>
             </FormControl>
 
             <HStack w="100%" justify="space-between">

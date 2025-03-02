@@ -11,7 +11,7 @@ import {
   Text,
 } from '@chakra-ui/react'
 import { AddIcon, SettingsIcon } from '@chakra-ui/icons'
-import { collection, query, getDocs, addDoc, where, doc, updateDoc } from 'firebase/firestore'
+import { collection, query, getDocs, addDoc, where, doc, updateDoc, deleteDoc } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
 import RecipeCard from './RecipeCard'
@@ -134,25 +134,37 @@ export default function RecipeList() {
     fetchRecipes()
   }
 
+  const handleDeleteRecipe = async (recipeId: string) => {
+    if (!currentUser?.isAdmin) return
+
+    try {
+      const recipeRef = doc(db, 'recipes', recipeId)
+      await deleteDoc(recipeRef)
+      fetchRecipes()
+    } catch (error) {
+      console.error('Error deleting recipe:', error)
+    }
+  }
+
   return (
     <Container maxW="container.xl" py={8}>
       <VStack spacing={8} align="stretch">
         <HStack justify="space-between" align="center">
-          <Heading color="brand.purple.500">My Recipes</Heading>
+          <Heading color="brand.purple.500">Oli & Chencho Favs</Heading>
           <HStack spacing={4}>
-            <Button
-              variant={viewMode === 'my' ? 'solid' : 'outline'}
-              colorScheme="purple"
-              onClick={() => setViewMode('my')}
-            >
-              My Recipes
-            </Button>
             <Button
               variant={viewMode === 'public' ? 'solid' : 'outline'}
               colorScheme="purple"
               onClick={() => setViewMode('public')}
             >
-              Public Recipes
+              Oli & Chencho Favs
+            </Button>
+            <Button
+              variant={viewMode === 'my' ? 'solid' : 'outline'}
+              colorScheme="purple"
+              onClick={() => setViewMode('my')}
+            >
+              My Personal Recipes
             </Button>
             {currentUser ? (
               <>
@@ -204,6 +216,8 @@ export default function RecipeList() {
                 recipe={recipe}
                 onEdit={handleEditClick}
                 onUpdate={handleRecipeUpdate}
+                onDelete={handleDeleteRecipe}
+                isAdmin={currentUser?.isAdmin}
               />
             ))}
           </Grid>

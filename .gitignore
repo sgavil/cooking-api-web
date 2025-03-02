@@ -30,4 +30,14 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-lerna-debug.log* 
+lerna-debug.log*
+
+# Firebase
+.firebase/
+.firebaserc
+firebase.json
+firebase-debug.log
+storage.rules
+cors.json
+*-debug.log
+.runtimeconfig.json 

@@ -4,10 +4,14 @@ import {
   signInWithEmailAndPassword,
   signOut,
   updatePassword,
-  User,
+  User as FirebaseUser,
 } from 'firebase/auth'
 import { doc, setDoc, getDoc } from 'firebase/firestore'
 import { auth, db } from '../firebase'
+
+interface User extends FirebaseUser {
+  isAdmin?: boolean
+}
 
 interface AuthContextType {
   currentUser: User | null
@@ -35,13 +39,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (user) => {
-      setCurrentUser(user)
       if (user) {
         const userDoc = await getDoc(doc(db, 'users', user.uid))
         if (userDoc.exists()) {
-          setCurrentUsername(userDoc.data().username)
+          const userData = userDoc.data()
+          setCurrentUsername(userData.username)
+          // Add admin status to the user object
+          const userWithAdmin = user as User
+          userWithAdmin.isAdmin = userData.isAdmin || false
+          setCurrentUser(userWithAdmin)
         }
       } else {
+        setCurrentUser(null)
         setCurrentUsername(null)
       }
       setLoading(false)
@@ -57,6 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await setDoc(doc(db, 'users', user.uid), {
       username,
       email,
+      isAdmin: false, // Default to non-admin
     })
     
     setCurrentUsername(username)
@@ -66,10 +76,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const userCredential = await signInWithEmailAndPassword(auth, email, password)
     const user = userCredential.user
     
-    // Get username from Firestore
+    // Get username and admin status from Firestore
     const userDoc = await getDoc(doc(db, 'users', user.uid))
     if (userDoc.exists()) {
-      setCurrentUsername(userDoc.data().username)
+      const userData = userDoc.data()
+      setCurrentUsername(userData.username)
+      // Add admin status to the user object
+      const userWithAdmin = user as User
+      userWithAdmin.isAdmin = userData.isAdmin || false
+      setCurrentUser(userWithAdmin)
     }
   }
 
